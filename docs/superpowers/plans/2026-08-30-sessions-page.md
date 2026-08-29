@@ -4,7 +4,7 @@
 
 **Goal:** Add a top-level Sessions page with local title enrichment (Codex `thread_name`, Claude `customTitle`/`aiTitle`), tool/project/date filters (default Today), hide Codex subagent/guardian threads, and move auto-continue controls out of Settings.
 
-**Architecture:** Pure Rust helpers in `session_enrich.rs` load local Codex/Claude title sources and build `display_name` / `project`. `CodexProvider` skips `upsert_session` when `thread_source != "user"`. `get_sessions` loads DB rows then enriches/filters before returning. Frontend adds `Sessions.tsx` with client-side filters; Settings loses the sessions card.
+**Architecture:** Pure Rust helpers in `session_enrich.rs` load local Codex/Claude title sources and build `display_name` / `project`. `CodexProvider` skips `upsert_session` when `thread_source` is present and not `"user"` (missing meta still allowed; index filter cleans legacy). `get_sessions` loads DB rows then enriches/filters before returning. Frontend adds `Sessions.tsx` with client-side filters; Settings loses the sessions card.
 
 **Tech Stack:** Tauri 2 + Rust (rusqlite, serde_json, walkdir), React 19, Zustand, date-fns (already used by Tokens), existing UI Button/Card/Switch/Input. No new npm deps.
 
@@ -58,7 +58,8 @@
   - `pub fn read_claude_session_title(jsonl_path: &Path) -> Option<String>`
   - `pub fn find_claude_session_jsonl(projects_root: &Path, session_id: &str) -> Option<PathBuf>`
   - `pub fn project_from_claude_projects_dir(dir_name: &str) -> Option<String>`
-  - `pub fn enrich_sessions(sessions: Vec<SessionView>) -> Vec<SessionView>`
+  - `pub fn enrich_sessions_with_dirs(sessions: Vec<SessionView>, codex_dir: &Path, claude_dir: &Path) -> Vec<SessionView>`
+  - `pub fn enrich_sessions(sessions: Vec<SessionView>) -> Vec<SessionView>` — calls `enrich_sessions_with_dirs(..., &paths::codex_dir(), &paths::claude_dir())`
 
 - [ ] **Step 1: Write failing tests for formatting + Codex index parse**
 
@@ -127,6 +128,20 @@ mod tests {
     }
 
     #[test]
+    fn find_claude_session_jsonl_by_id() {
+        let root = tempfile::tempdir().unwrap();
+        let proj = root.path().join("C--Users-x-Coding-StudySystem");
+        std::fs::create_dir_all(&proj).unwrap();
+        let sid = "889318d1-7972-4d97-bbdd-820fe0be1f60";
+        let path = proj.join(format!("{sid}.jsonl"));
+        std::fs::write(&path, "{}\n").unwrap();
+        assert_eq!(
+            find_claude_session_jsonl(root.path(), sid),
+            Some(path)
+        );
+    }
+
+    #[test]
     fn enrich_drops_codex_ids_missing_from_index_when_index_ok() {
         let dir = tempfile::tempdir().unwrap();
         let index = dir.path().join("session_index.jsonl");
@@ -137,8 +152,7 @@ mod tests {
         )
         .unwrap();
 
-        let prev = std::env::var_os("CODEX_HOME");
-        std::env::set_var("CODEX_HOME", dir.path());
+        let claude_home = tempfile::tempdir().unwrap();
 
         let input = vec![
             SessionView {
@@ -168,21 +182,18 @@ mod tests {
                 project: None,
             },
         ];
-        let out = enrich_sessions(input);
+        let out = enrich_sessions_with_dirs(input, dir.path(), claude_home.path());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id, "keep-me");
         assert_eq!(out[0].display_name, "StudySystem - Main thread");
         assert!(out[0].model.is_none());
-
-        match prev {
-            Some(v) => std::env::set_var("CODEX_HOME", v),
-            None => std::env::remove_var("CODEX_HOME"),
-        }
     }
 }
 ```
 
 If `tempfile` is not in `Cargo.toml`, add under `[dev-dependencies]`: `tempfile = "3"`.
+
+**Do not mutate `CODEX_HOME` in tests** — inject dirs via `enrich_sessions_with_dirs` so parallel `cargo test` stays safe.
 
 - [ ] **Step 2: Run tests — expect compile/fail**
 
@@ -326,12 +337,19 @@ fn usable_model(model: &Option<String>) -> Option<String> {
     })
 }
 
-pub fn enrich_sessions(mut sessions: Vec<SessionView>) -> Vec<SessionView> {
-    let index_path = paths::codex_dir().join("session_index.jsonl");
+pub fn enrich_sessions_with_dirs(
+    mut sessions: Vec<SessionView>,
+    codex_dir: &Path,
+    claude_dir: &Path,
+) -> Vec<SessionView> {
+    let index_path = codex_dir.join("session_index.jsonl");
     let codex_names = load_codex_thread_names(&index_path).ok();
     let index_ok = codex_names.is_some();
     let names = codex_names.unwrap_or_default();
-    let projects_root = paths::claude_dir().join("projects");
+    let projects_root = claude_dir.join("projects");
+
+    // Sessions page is Codex + Claude only (no Cursor).
+    sessions.retain(|s| s.source == "codex" || s.source == "claude");
 
     if index_ok {
         sessions.retain(|s| {
@@ -372,9 +390,13 @@ pub fn enrich_sessions(mut sessions: Vec<SessionView>) -> Vec<SessionView> {
 
     sessions
 }
+
+pub fn enrich_sessions(sessions: Vec<SessionView>) -> Vec<SessionView> {
+    enrich_sessions_with_dirs(sessions, &paths::codex_dir(), &paths::claude_dir())
+}
 ```
 
-Complete the `enrich_drops_codex_ids_missing_from_index_when_index_ok` test by setting `CODEX_HOME` to a temp dir (save/restore env like `paths.rs` tests).
+Complete any remaining tests; ensure `SessionView` already has `display_name` / `project`.
 
 - [ ] **Step 4: Register module**
 
@@ -489,9 +511,15 @@ mod thread_source_tests {
 Run: `cd src-tauri && cargo test only_user_or_missing_are_manageable -- --nocapture`  
 Expected: PASS once helper exists
 
-- [ ] **Step 3: Gate `session_meta` upsert**
+- [ ] **Step 3: Gate all `upsert_session` calls in `scan_file` with a file-local flag**
 
-In the `"session_meta"` arm of `scan_file`:
+Near the top of `scan_file` (with `session_id` / `model` / `cwd`), add:
+
+```rust
+let mut manageable_session = true;
+```
+
+Replace the `"session_meta"` arm with:
 
 ```rust
 "session_meta" => {
@@ -501,13 +529,9 @@ In the `"session_meta"` arm of `scan_file`:
     if let Some(c) = payload.get("cwd").and_then(|v| v.as_str()) {
         cwd = Some(c.to_string());
     }
-    let thread_source = payload
-        .get("thread_source")
-        .and_then(|v| v.as_str());
-    let manageable = is_manageable_codex_thread(thread_source);
-    // Track skip for later upserts in this file if desired:
-    // e.g. let mut skip_session_row = !manageable;
-    if manageable && !session_id.is_empty() {
+    let thread_source = payload.get("thread_source").and_then(|v| v.as_str());
+    manageable_session = is_manageable_codex_thread(thread_source);
+    if manageable_session && !session_id.is_empty() {
         let model_ref = if model == "unknown" {
             None
         } else {
@@ -524,9 +548,20 @@ In the `"session_meta"` arm of `scan_file`:
 }
 ```
 
-Also gate the later `upsert_session` after token events: if this rollout's `thread_source` was non-user, skip session upsert (still allow usage insert if you keep usage for billing — prefer skipping session row only). Simplest approach: keep a `manageable_session: bool` flag set in `session_meta` (default `true` until meta says otherwise).
+Replace the later token_count `upsert_session` with:
 
-When calling `upsert_session` after token_count, pass `None` instead of `Some("unknown")` for model.
+```rust
+if manageable_session {
+    let model_ref = if model == "unknown" {
+        None
+    } else {
+        Some(model.as_str())
+    };
+    let _ = db.upsert_session(&sid, "codex", cwd.as_deref(), model_ref, ts);
+}
+```
+
+Usage `insert_usage_exact` stays as-is (billing still records the thread).
 
 - [ ] **Step 4: Run tests**
 
@@ -592,6 +627,15 @@ import type { InjectionTarget, SessionView } from "@/lib/types";
 
 type ToolFilter = "all" | "codex" | "claude";
 type DateFilter = "today" | "7d" | "30d" | "all";
+
+function formatLastSeen(ts: number | null): string | null {
+  if (ts == null) return null;
+  try {
+    return new Date(ts * 1000).toLocaleString();
+  } catch {
+    return null;
+  }
+}
 
 function inDateFilter(lastSeen: number | null, filter: DateFilter): boolean {
   if (filter === "all") return true;
@@ -725,7 +769,7 @@ export default function Sessions() {
                 <div className="min-w-[12rem] grow">
                   <div className="font-medium">{s.display_name}</div>
                   <div className="text-xs text-[var(--color-muted-foreground)]">
-                    {[s.source, s.model, s.cwd || s.id]
+                    {[s.model, s.cwd, formatLastSeen(s.last_seen)]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
@@ -858,3 +902,18 @@ git commit -m "fix: Sessions page acceptance polish"
 | Local-only paths via `paths::*` | Task 1 |
 | Tests for title/hide rules | Tasks 1, 3 |
 | Manual acceptance | Task 5 |
+
+## Plan verification (2026-08-30)
+
+| Check | Result |
+| --- | --- |
+| Spec coverage (nav, enrich, hide, filters, Settings move, tests) | Covered by Tasks 1–5 |
+| Placeholder / incomplete Task 3 gate | Fixed — full `manageable_session` flag code |
+| Parallel-test hazard (`CODEX_HOME` mutation) | Fixed — `enrich_sessions_with_dirs` injects paths |
+| Missing Claude locate test (spec Testing) | Fixed — `find_claude_session_jsonl_by_id` |
+| UI subtitle missing last seen (spec UI) | Fixed — `formatLastSeen` |
+| Cursor on Sessions page | Fixed — enrich retains only `codex` / `claude` |
+| `tempfile` not in Cargo.toml | Plan adds `[dev-dependencies]` |
+| `walkdir` / `serde_json` already present | Confirmed |
+| Scheduler still uses DB `enabled_autocontinue_sessions` (not enrich) | Acceptable: UI cannot enable hidden subagents; legacy enabled rows rare; out of scope to change scheduler |
+| Type names consistent (`display_name`, `project`, `enrich_sessions`) | Consistent across tasks |
