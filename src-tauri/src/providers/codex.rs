@@ -19,6 +19,27 @@ use crate::pricing;
 
 const MAX_BASELINES: usize = 32;
 
+fn is_manageable_codex_thread(thread_source: Option<&str>) -> bool {
+    match thread_source {
+        None => true, // legacy / missing: allow (index filter cleans later)
+        Some("user") => true,
+        Some(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod thread_source_tests {
+    use super::is_manageable_codex_thread;
+
+    #[test]
+    fn only_user_or_missing_are_manageable() {
+        assert!(is_manageable_codex_thread(Some("user")));
+        assert!(is_manageable_codex_thread(None));
+        assert!(!is_manageable_codex_thread(Some("subagent")));
+        assert!(!is_manageable_codex_thread(Some("guardian_review")));
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct TokenUsage {
     input_tokens: i64,
@@ -258,6 +279,7 @@ impl CodexProvider {
         let mut session_id = String::new();
         let mut model = String::from("unknown");
         let mut cwd: Option<String> = None;
+        let mut manageable_session = true;
         let mut written = 0usize;
         let mut line_no: u64 = 0;
         let mut bytes_read = start;
@@ -296,12 +318,19 @@ impl CodexProvider {
                     if let Some(c) = payload.get("cwd").and_then(|v| v.as_str()) {
                         cwd = Some(c.to_string());
                     }
-                    if !session_id.is_empty() {
+                    let thread_source = payload.get("thread_source").and_then(|v| v.as_str());
+                    manageable_session = is_manageable_codex_thread(thread_source);
+                    if manageable_session && !session_id.is_empty() {
+                        let model_ref = if model == "unknown" {
+                            None
+                        } else {
+                            Some(model.as_str())
+                        };
                         let _ = db.upsert_session(
                             &session_id,
                             "codex",
                             cwd.as_deref(),
-                            Some(&model),
+                            model_ref,
                             ts,
                         );
                     }
@@ -384,7 +413,14 @@ impl CodexProvider {
                     if inserted {
                         written += 1;
                     }
-                    let _ = db.upsert_session(&sid, "codex", cwd.as_deref(), Some(&model), ts);
+                    if manageable_session {
+                        let model_ref = if model == "unknown" {
+                            None
+                        } else {
+                            Some(model.as_str())
+                        };
+                        let _ = db.upsert_session(&sid, "codex", cwd.as_deref(), model_ref, ts);
+                    }
                 }
                 _ => {}
             }
