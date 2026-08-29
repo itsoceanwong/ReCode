@@ -10,6 +10,25 @@ import {
 } from "recharts";
 import type { UsageAggregate } from "@/lib/types";
 
+const tickStyle = {
+  fontSize: 11,
+  fill: "var(--color-muted-foreground)",
+} as const;
+
+const tooltipStyle = {
+  backgroundColor: "var(--color-card)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "0.5rem",
+  color: "var(--color-foreground)",
+  boxShadow: "0 4px 12px color-mix(in oklch, var(--color-foreground) 12%, transparent)",
+} as const;
+
+const numberFmt = new Intl.NumberFormat();
+
+function fmtNumber(n: number) {
+  return numberFmt.format(n);
+}
+
 export function UsageChart({ rows }: { rows: UsageAggregate[] }) {
   const data = rows.map((r) => ({
     name: r.model || r.source,
@@ -27,11 +46,30 @@ export function UsageChart({ rows }: { rows: UsageAggregate[] }) {
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} />
-          <Tooltip />
-          <Legend />
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="var(--color-border)"
+          />
+          <XAxis
+            dataKey="name"
+            tick={tickStyle}
+            stroke="var(--color-border)"
+          />
+          <YAxis
+            tick={tickStyle}
+            stroke="var(--color-border)"
+            tickFormatter={(v: number) => fmtNumber(v)}
+          />
+          <Tooltip
+            contentStyle={tooltipStyle}
+            labelStyle={{ color: "var(--color-foreground)" }}
+            itemStyle={{ color: "var(--color-foreground)" }}
+            cursor={{ fill: "var(--color-muted)", opacity: 0.35 }}
+            formatter={(value) =>
+              fmtNumber(typeof value === "number" ? value : Number(value))
+            }
+          />
+          <Legend wrapperStyle={{ color: "var(--color-foreground)" }} />
           <Bar dataKey="input" stackId="t" fill="#2f5d8a" />
           <Bar dataKey="output" stackId="t" fill="#3d8b7a" />
           <Bar dataKey="cache" stackId="t" fill="#a3b18a" />

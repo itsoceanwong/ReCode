@@ -295,7 +295,7 @@ export function SettingsPage() {
                   }
                 />
                 <select
-                  className="h-9 max-w-[16rem] rounded-md border border-[var(--color-border)] bg-white px-2 text-xs"
+                  className="h-9 max-w-[16rem] rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 text-xs"
                   value={s.target_ref ?? ""}
                   onChange={(e) => {
                     const reference = e.target.value;
