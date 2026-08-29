@@ -19,7 +19,7 @@
   --radius-lg: 0.75rem;
 }
 
-.dark {
+html.dark {
   --color-background: oklch(0.18 0.02 250);
   --color-foreground: oklch(0.93 0.01 85);
   --color-card: oklch(0.22 0.02 250);
