@@ -62,10 +62,31 @@ pub fn start(app: AppHandle, state: AppState) -> Result<()> {
     let claude = Arc::new(Mutex::new(ClaudeProvider::new()));
     let heal_skip = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
+    // Initial Codex scan can take minutes on large session trees — never block UI setup.
     {
-        if let Ok(mut c) = codex.lock() {
-            let _ = c.scan_all(&state.db);
-        }
+        let state_scan = state.clone();
+        let app_scan = app.clone();
+        let codex_scan = Arc::clone(&codex);
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let result = codex_scan
+                .lock()
+                .map_err(|e| e.to_string())
+                .and_then(|mut c| c.scan_all(&state_scan.db).map_err(|e| e.to_string()));
+            match result {
+                Ok(n) => {
+                    eprintln!(
+                        "codex initial scan: {n} event(s) in {:.1}s",
+                        started.elapsed().as_secs_f64()
+                    );
+                    if n > 0 {
+                        let _ = app_scan.emit("usage_updated", ());
+                        let _ = app_scan.emit("limits_updated", ());
+                    }
+                }
+                Err(e) => eprintln!("codex initial scan: {e}"),
+            }
+        });
     }
 
     let app2 = app.clone();

@@ -10,7 +10,7 @@ use crate::state::AppState;
 
 pub fn start(app: AppHandle, state: AppState) {
     let last_fired: Arc<Mutex<HashMap<String, i64>>> = Arc::new(Mutex::new(HashMap::new()));
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;

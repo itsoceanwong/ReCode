@@ -27,18 +27,47 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            let debug = std::env::var_os("RECODE_DEBUG").is_some();
             let app_data = app
                 .path()
                 .app_data_dir()
                 .map_err(|e| format!("app_data_dir: {e}"))?;
             std::fs::create_dir_all(&app_data)?;
             let db_path = app_data.join("recode.db");
+            let debug_log_path = app_data.join("debug-startup.log");
+            let mut debug_log = if debug {
+                Some(
+                    std::fs::File::create(&debug_log_path)
+                        .map_err(|e| format!("debug-startup.log: {e}"))?,
+                )
+            } else {
+                None
+            };
+            let mut dlog = |msg: &str| {
+                eprintln!("{msg}");
+                if let Some(f) = debug_log.as_mut() {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{msg}");
+                    let _ = f.flush();
+                }
+            };
+            if debug {
+                dlog(&format!(
+                    "[startup] app_data_dir = {}",
+                    app_data.display()
+                ));
+                dlog(&format!("[startup] db_path      = {}", db_path.display()));
+                dlog(&format!(
+                    "[startup] debug_log    = {}",
+                    debug_log_path.display()
+                ));
+            }
             let db = Db::open(&db_path).map_err(|e| e.to_string())?;
 
             let seed = include_str!("../resources/pricing-seed.json");
             pricing::seed_pricing_if_empty(&db, seed).map_err(|e| e.to_string())?;
 
-            let _ = paths::recode_dir();
+            let recode_home = paths::recode_dir();
             let preferred: u16 = db
                 .get_setting("otlp_port")
                 .ok()
@@ -58,28 +87,74 @@ pub fn run() {
                 .map(|v| v != "false")
                 .unwrap_or(true);
 
+            if debug {
+                dlog(&format!(
+                    "[startup] recode_dir         = {}",
+                    recode_home.display()
+                ));
+                dlog(&format!("[startup] otlp_port_pref     = {preferred}"));
+                dlog(&format!("[startup] telemetry_enabled  = {telemetry_enabled}"));
+                dlog(&format!("[startup] cursor_enabled     = {cursor_enabled}"));
+            }
+
             let state = AppState::new(db, preferred, cursor_enabled);
             if let Err(e) = watcher::start(app.handle().clone(), state.clone()) {
                 eprintln!("watcher start: {e}");
+            } else if debug {
+                dlog("[startup] watcher started");
             }
-            // Initial Cursor scan (best-effort).
+
+            // Cursor scan can be slow on large stores — do not block first paint.
             {
-                if let Ok(mut c) = state.cursor.lock() {
-                    match c.scan(&state.db) {
-                        Ok(n) if n > 0 => {
-                            let _ = app.emit("usage_updated", ());
+                let handle = app.handle().clone();
+                let state_scan = state.clone();
+                let debug_scan = debug;
+                let debug_log_path_scan = debug_log_path.clone();
+                std::thread::spawn(move || {
+                    let result = state_scan
+                        .cursor
+                        .lock()
+                        .map_err(|e| e.to_string())
+                        .and_then(|mut c| c.scan(&state_scan.db).map_err(|e| e.to_string()));
+                    match result {
+                        Ok(n) => {
+                            if debug_scan {
+                                let msg = format!("[startup] cursor scan: {n} new event(s)");
+                                eprintln!("{msg}");
+                                if let Ok(mut f) = std::fs::OpenOptions::new()
+                                    .append(true)
+                                    .open(&debug_log_path_scan)
+                                {
+                                    use std::io::Write;
+                                    let _ = writeln!(f, "{msg}");
+                                }
+                            }
+                            if n > 0 {
+                                let _ = handle.emit("usage_updated", ());
+                            }
                         }
-                        Ok(_) => {}
                         Err(e) => eprintln!("cursor scan: {e}"),
                     }
-                }
+                });
             }
 
             let handle = app.handle().clone();
             let state_for_otlp = state.clone();
+            let debug_log_path_otlp = debug_log_path.clone();
             tauri::async_runtime::spawn(async move {
                 match OtlpServer::start(handle, state_for_otlp.clone(), preferred).await {
                     Ok(port) => {
+                        if debug {
+                            let msg = format!("[startup] otlp listening on port {port}");
+                            eprintln!("{msg}");
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .append(true)
+                                .open(&debug_log_path_otlp)
+                            {
+                                use std::io::Write;
+                                let _ = writeln!(f, "{msg}");
+                            }
+                        }
                         if let Ok(mut p) = state_for_otlp.otlp_port.lock() {
                             *p = port;
                         }
@@ -93,7 +168,19 @@ pub fn run() {
             });
 
             scheduler::start(app.handle().clone(), state.clone());
+            if debug {
+                dlog("[startup] scheduler started");
+            }
             app.manage(state);
+            if debug {
+                dlog("[startup] setup complete");
+                if let Some(win) = app.get_webview_window("main") {
+                    win.open_devtools();
+                    dlog("[startup] webview DevTools opened");
+                } else {
+                    dlog("[startup] main window not ready for DevTools yet");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
