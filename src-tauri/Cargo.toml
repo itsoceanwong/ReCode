@@ -32,6 +32,9 @@ enigo = "0.3"
 prost = "0.14.4"
 opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic-messages", "metrics"] }
 
+[dev-dependencies]
+tempfile = "3"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_Foundation",

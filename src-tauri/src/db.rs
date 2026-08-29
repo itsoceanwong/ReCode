@@ -278,8 +278,9 @@ CREATE TABLE IF NOT EXISTS autocontinue_log (
         )?;
         let rows = stmt
             .query_map([], |row| {
+                let id: String = row.get(0)?;
                 Ok(SessionView {
-                    id: row.get(0)?,
+                    id: id.clone(),
                     source: row.get(1)?,
                     cwd: row.get(2)?,
                     model: row.get(3)?,
@@ -288,6 +289,8 @@ CREATE TABLE IF NOT EXISTS autocontinue_log (
                     target_kind: row.get(6)?,
                     target_ref: row.get(7)?,
                     last_seen: row.get(8)?,
+                    display_name: id,
+                    project: None,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
