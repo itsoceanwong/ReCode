@@ -55,6 +55,6 @@ No machine-absolute paths (e.g. `C:\Users\…`) are baked into the app.
 
 ## Claude telemetry
 
-Settings → Enable telemetry merges OTEL env + statusline hook into `~/.claude/settings.json` (atomic write + `.recode.bak`). If [cc-switch](https://github.com) rewrites that file, ReCode self-heals when telemetry remains enabled.
+Settings → Enable telemetry merges OTEL env + statusline hook into `~/.claude/settings.json` (atomic write + `.recode.bak`). If [cc-switch](https://github.com/farion1231/cc-switch) rewrites that file, ReCode self-heals when telemetry remains enabled.
 
 Default continue prompt: `read the history, continue on the work`.
