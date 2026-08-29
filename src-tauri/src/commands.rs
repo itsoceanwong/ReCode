@@ -81,7 +81,7 @@ pub fn set_manual_limit(
 ) -> Result<(), String> {
     state
         .db
-        .upsert_limit(&source, &kind, used_percent, Some(resets_at), true)
+        .upsert_limit(&source, &kind, used_percent, Some(resets_at), true, None)
         .map_err(|e| e.to_string())
 }
 

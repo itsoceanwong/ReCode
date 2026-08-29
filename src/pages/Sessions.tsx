@@ -3,8 +3,8 @@ import { endOfDay, startOfDay, subDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api";
-import type { InjectionTarget, SessionView } from "@/lib/types";
+import { api, onAutocontinueFired, onLimitsUpdated } from "@/lib/api";
+import type { InjectionTarget, LimitWindow, SessionView } from "@/lib/types";
 
 type ToolFilter = "all" | "codex" | "claude";
 type DateFilter = "today" | "7d" | "30d" | "all";
@@ -27,9 +27,33 @@ function inDateFilter(lastSeen: number | null, filter: DateFilter): boolean {
   return lastSeen >= from && lastSeen <= to;
 }
 
+/** Same rule as scheduler: earliest five_hour resets_at for source + offset. */
+function continueAtUnix(
+  source: string,
+  limits: LimitWindow[],
+  offsetSeconds: number,
+): number | null {
+  const resets = limits
+    .filter((l) => l.source === source && l.window_kind === "five_hour")
+    .map((l) => l.resets_at)
+    .filter((t): t is number => t != null);
+  if (resets.length === 0) return null;
+  return Math.min(...resets) + offsetSeconds;
+}
+
+function formatContinueAt(fireAt: number | null, nowSec: number): string {
+  if (fireAt == null) return "Continue: —";
+  const when = new Date(fireAt * 1000).toLocaleString();
+  if (fireAt > nowSec) return `Continue: ${when}`;
+  return `Continue due: ${when}`;
+}
+
 export default function Sessions() {
   const [sessions, setSessions] = useState<SessionView[]>([]);
   const [targets, setTargets] = useState<InjectionTarget[]>([]);
+  const [limits, setLimits] = useState<LimitWindow[]>([]);
+  const [offsetSeconds, setOffsetSeconds] = useState(120);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [tool, setTool] = useState<ToolFilter>("all");
   const [project, setProject] = useState<string>("all");
   const [date, setDate] = useState<DateFilter>("today");
@@ -37,8 +61,16 @@ export default function Sessions() {
   const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
-    const sess = await api.getSessions();
+    const [sess, settings, dash] = await Promise.all([
+      api.getSessions(),
+      api.getSettings(),
+      api.getDashboard(),
+    ]);
     setSessions(sess);
+    setLimits(dash.limits);
+    const parsed = Number(settings.continue_offset_seconds ?? "120");
+    setOffsetSeconds(Number.isFinite(parsed) ? parsed : 120);
+    setNowSec(Math.floor(Date.now() / 1000));
     try {
       setTargets(await api.listInjectionTargets());
     } catch {
@@ -50,8 +82,22 @@ export default function Sessions() {
     refresh().catch((e: unknown) =>
       setError(e instanceof Error ? e.message : String(e)),
     );
+    const unsubs: Array<() => void> = [];
+    onLimitsUpdated(() => {
+      void refresh();
+    }).then((fn) => unsubs.push(fn));
+    onAutocontinueFired(() => {
+      void refresh();
+    }).then((fn) => unsubs.push(fn));
+    const id = window.setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000));
+      void refresh().catch(() => {});
+    }, 15_000);
+    return () => {
+      unsubs.forEach((u) => u());
+      window.clearInterval(id);
+    };
   }, []);
-
   const projects = useMemo(() => {
     const set = new Set<string>();
     for (const s of sessions) {
@@ -153,6 +199,12 @@ export default function Sessions() {
                     {[s.model, s.cwd, formatLastSeen(s.last_seen)]
                       .filter(Boolean)
                       .join(" · ")}
+                  </div>
+                  <div className="text-xs text-[var(--color-muted-foreground)]">
+                    {formatContinueAt(
+                      continueAtUnix(s.source, limits, offsetSeconds),
+                      nowSec,
+                    )}
                   </div>
                 </div>
                 <Switch

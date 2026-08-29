@@ -10,6 +10,7 @@ pub fn upsert(db: &Db, win: LimitWindow) -> Result<()> {
         win.used_percent,
         win.resets_at,
         win.is_manual,
+        Some(win.updated_at),
     )
 }
 

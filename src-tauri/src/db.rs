@@ -435,19 +435,36 @@ CREATE TABLE IF NOT EXISTS autocontinue_log (
         used_percent: Option<f64>,
         resets_at: Option<i64>,
         is_manual: bool,
+        observed_at: Option<i64>,
     ) -> Result<()> {
-        let now = chrono::Utc::now().timestamp();
+        let now = observed_at.unwrap_or_else(|| chrono::Utc::now().timestamp());
         let conn = self.conn.lock().expect("db lock");
-        if !is_manual {
-            let existing: Option<i64> = conn
-                .query_row(
-                    "SELECT is_manual FROM limit_windows WHERE source = ?1 AND window_kind = ?2",
-                    params![source, window_kind],
-                    |row| row.get(0),
-                )
-                .ok();
-            if existing == Some(1) {
+        if let Ok((existing_manual, existing_resets, existing_updated)) = conn.query_row(
+            "SELECT is_manual, resets_at, updated_at FROM limit_windows WHERE source = ?1 AND window_kind = ?2",
+            params![source, window_kind],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        ) {
+            // Never overwrite a manual limit with auto detection.
+            if !is_manual && existing_manual == 1 {
                 return Ok(());
+            }
+            if !is_manual {
+                // Prefer newer rate-limit windows (full scans include stale historical files).
+                if let (Some(new_r), Some(old_r)) = (resets_at, existing_resets) {
+                    if new_r < old_r {
+                        return Ok(());
+                    }
+                }
+                // Same window: keep the newer observation.
+                if existing_updated > now {
+                    return Ok(());
+                }
             }
         }
         conn.execute(
