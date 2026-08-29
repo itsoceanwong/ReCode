@@ -1,12 +1,14 @@
 import { useAppStore, type PageId } from "./store";
 import Dashboard from "./pages/Dashboard";
 import Tokens from "./pages/Tokens";
+import Sessions from "./pages/Sessions";
 import { SettingsPage } from "./pages/Settings";
 import { cn } from "./lib/utils";
 
 const NAV: { id: PageId; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "tokens", label: "Tokens" },
+  { id: "sessions", label: "Sessions" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -62,6 +64,7 @@ function App() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         {page === "dashboard" && <Dashboard />}
         {page === "tokens" && <Tokens />}
+        {page === "sessions" && <Sessions />}
         {page === "settings" && <SettingsPage />}
       </main>
     </div>
