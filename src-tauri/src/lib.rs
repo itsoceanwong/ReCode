@@ -1,6 +1,7 @@
 mod commands;
 mod config_writer;
 mod db;
+mod session_enrich;
 mod injector;
 #[cfg(target_os = "macos")]
 mod injector_macos;

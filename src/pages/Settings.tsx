@@ -6,9 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import type {
   CursorStatus,
-  InjectionTarget,
   PricingRow,
-  SessionView,
   TelemetryStatus,
 } from "@/lib/types";
 
@@ -24,15 +22,12 @@ export function SettingsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tel, setTel] = useState<TelemetryStatus | null>(null);
-  const [sessions, setSessions] = useState<SessionView[]>([]);
-  const [targets, setTargets] = useState<InjectionTarget[]>([]);
   const [pricing, setPricingRows] = useState<PricingRow[]>([]);
 
   async function refresh() {
-    const [s, t, sess, price, cstat] = await Promise.all([
+    const [s, t, price, cstat] = await Promise.all([
       api.getSettings(),
       api.telemetryStatus(),
-      api.getSessions(),
       api.getPricing(),
       api.cursorStatus().catch(() => null),
     ]);
@@ -41,14 +36,8 @@ export function SettingsPage() {
     setNotifyOnly(s.notify_only === "true");
     setCursorEnabled(s.cursor_enabled !== "false");
     setTel(t);
-    setSessions(sess);
     setPricingRows(price);
     setCursorStat(cstat);
-    try {
-      setTargets(await api.listInjectionTargets());
-    } catch {
-      setTargets([]);
-    }
   }
 
   useEffect(() => {
@@ -262,79 +251,6 @@ export function SettingsPage() {
               Add manual usage row
             </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Sessions / auto-continue</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {sessions.length === 0 ? (
-            <p className="text-sm text-[var(--color-muted-foreground)]">
-              No sessions discovered yet.
-            </p>
-          ) : (
-            sessions.map((s) => (
-              <div
-                key={s.id}
-                className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] py-2 text-sm"
-              >
-                <div className="min-w-[12rem] grow">
-                  <div className="font-medium">
-                    {s.source} · {s.model || "unknown"}
-                  </div>
-                  <div className="text-xs text-[var(--color-muted-foreground)]">
-                    {s.cwd || s.id}
-                  </div>
-                </div>
-                <Switch
-                  checked={s.auto_continue_enabled}
-                  onCheckedChange={(enabled) =>
-                    void api.setSessionAutocontinue(s.id, enabled).then(refresh)
-                  }
-                />
-                <select
-                  className="h-9 max-w-[16rem] rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2 text-xs"
-                  value={s.target_ref ?? ""}
-                  onChange={(e) => {
-                    const reference = e.target.value;
-                    const t = targets.find((x) => x.reference === reference);
-                    if (!t) return;
-                    void api
-                      .setSessionAutocontinue(
-                        s.id,
-                        s.auto_continue_enabled,
-                        s.continue_prompt,
-                        t,
-                      )
-                      .then(refresh);
-                  }}
-                >
-                  <option value="">Injection target…</option>
-                  {targets.map((t) => (
-                    <option key={t.reference} value={t.reference}>
-                      {t.reference}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!s.target_ref}
-                  onClick={() => {
-                    const t = targets.find((x) => x.reference === s.target_ref);
-                    if (!t) return;
-                    void api
-                      .testInjection(t, "ReCode test message")
-                      .then((o) => setStatus(`Test: ${JSON.stringify(o)}`));
-                  }}
-                >
-                  Send test
-                </Button>
-              </div>
-            ))
-          )}
         </CardContent>
       </Card>
 

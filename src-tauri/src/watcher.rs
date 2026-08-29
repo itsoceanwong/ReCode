@@ -79,10 +79,8 @@ pub fn start(app: AppHandle, state: AppState) -> Result<()> {
                         "codex initial scan: {n} event(s) in {:.1}s",
                         started.elapsed().as_secs_f64()
                     );
-                    if n > 0 {
-                        let _ = app_scan.emit("usage_updated", ());
-                        let _ = app_scan.emit("limits_updated", ());
-                    }
+                    let _ = app_scan.emit("usage_updated", ());
+                    let _ = app_scan.emit("limits_updated", ());
                 }
                 Err(e) => eprintln!("codex initial scan: {e}"),
             }
@@ -110,9 +108,14 @@ pub fn start(app: AppHandle, state: AppState) -> Result<()> {
             let path_str = path.to_string_lossy().to_lowercase();
             if path_str.contains("rollout-") && path_str.ends_with(".jsonl") {
                 if let Ok(mut c) = codex2.lock() {
-                    if c.scan_file(&state2.db, &path).ok().unwrap_or(0) > 0 {
-                        let _ = app2.emit("usage_updated", ());
-                        let _ = app2.emit("limits_updated", ());
+                    match c.scan_file(&state2.db, &path) {
+                        Ok(n) => {
+                            if n > 0 {
+                                let _ = app2.emit("usage_updated", ());
+                            }
+                            let _ = app2.emit("limits_updated", ());
+                        }
+                        Err(e) => eprintln!("codex scan_file: {e}"),
                     }
                 }
             } else if path.file_name().and_then(|n| n.to_str()) == Some("claude-status.jsonl") {

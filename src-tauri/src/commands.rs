@@ -40,7 +40,8 @@ pub fn get_usage(
 
 #[tauri::command]
 pub fn get_sessions(state: State<'_, AppState>) -> Result<Vec<SessionView>, String> {
-    state.db.get_sessions().map_err(|e| e.to_string())
+    let rows = state.db.get_sessions().map_err(|e| e.to_string())?;
+    Ok(crate::session_enrich::enrich_sessions(rows))
 }
 
 #[tauri::command]
@@ -80,7 +81,7 @@ pub fn set_manual_limit(
 ) -> Result<(), String> {
     state
         .db
-        .upsert_limit(&source, &kind, used_percent, Some(resets_at), true)
+        .upsert_limit(&source, &kind, used_percent, Some(resets_at), true, None)
         .map_err(|e| e.to_string())
 }
 

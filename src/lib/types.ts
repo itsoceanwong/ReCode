@@ -35,6 +35,8 @@ export interface SessionView {
   target_kind: TargetKind | null;
   target_ref: string | null;
   last_seen: number | null;
+  display_name: string;
+  project: string | null;
 }
 
 export interface PricingRow {

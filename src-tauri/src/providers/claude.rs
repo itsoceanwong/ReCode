@@ -134,7 +134,7 @@ fn upsert_rate_limit(db: &Db, rl: &Value, kind: &str) {
     if used.is_none() && resets.is_none() {
         return;
     }
-    let _ = db.upsert_limit("claude", kind, used, resets, false);
+    let _ = db.upsert_limit("claude", kind, used, resets, false, None);
 }
 
 #[allow(dead_code)]

@@ -9,7 +9,7 @@ import {
   writeStoredTheme,
 } from "./lib/theme";
 
-export type PageId = "dashboard" | "tokens" | "settings";
+export type PageId = "dashboard" | "tokens" | "sessions" | "settings";
 
 const initialPreference = readStoredTheme();
 const initialResolved = resolveTheme(initialPreference);

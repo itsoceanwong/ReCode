@@ -34,6 +34,8 @@ pub struct SessionView {
     pub target_kind: Option<String>,
     pub target_ref: Option<String>,
     pub last_seen: Option<i64>,
+    pub display_name: String,
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

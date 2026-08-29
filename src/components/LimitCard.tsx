@@ -24,13 +24,9 @@ export function CountdownBadge({ resetsAt }: { resetsAt: number | null }) {
 export function LimitCard({
   source,
   windows,
-  onSetManual,
-  onClearManual,
 }: {
   source: string;
   windows: LimitWindow[];
-  onSetManual: (kind: string, resetsAt: number, used?: number) => void;
-  onClearManual: (kind: string) => void;
 }) {
   const five = windows.find((w) => w.window_kind === "five_hour");
   const seven = windows.find((w) => w.window_kind === "seven_day");
@@ -40,34 +36,14 @@ export function LimitCard({
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-base font-semibold capitalize">{source}</h3>
       </div>
-      <WindowRow
-        label="5 hour"
-        win={five}
-        onSet={(resetsAt, used) => onSetManual("five_hour", resetsAt, used)}
-        onClear={() => onClearManual("five_hour")}
-      />
+      <WindowRow label="5 hour" win={five} />
       <div className="my-3 border-t border-[var(--color-border)]" />
-      <WindowRow
-        label="7 day"
-        win={seven}
-        onSet={(resetsAt, used) => onSetManual("seven_day", resetsAt, used)}
-        onClear={() => onClearManual("seven_day")}
-      />
+      <WindowRow label="7 day" win={seven} />
     </div>
   );
 }
 
-function WindowRow({
-  label,
-  win,
-  onSet,
-  onClear,
-}: {
-  label: string;
-  win?: LimitWindow;
-  onSet: (resetsAt: number, used?: number) => void;
-  onClear: () => void;
-}) {
+function WindowRow({ label, win }: { label: string; win?: LimitWindow }) {
   const pct = win?.used_percent ?? null;
   return (
     <div className="space-y-2">
@@ -81,33 +57,8 @@ function WindowRow({
           style={{ width: `${Math.min(100, Math.max(0, pct ?? 0))}%` }}
         />
       </div>
-      <div className="flex items-center justify-between text-xs text-[var(--color-muted-foreground)]">
-        <span>
-          {pct != null ? `${pct.toFixed(1)}% used` : "no data"}
-          {win?.is_manual ? " · manual" : ""}
-        </span>
-        <span className="flex gap-2">
-          <button
-            type="button"
-            className="underline-offset-2 hover:underline"
-            onClick={() => {
-              const minutes = window.prompt("Reset in how many minutes?", "5");
-              if (!minutes) return;
-              const n = Number(minutes);
-              if (!Number.isFinite(n)) return;
-              const usedRaw = window.prompt("Used percent (optional)", "0");
-              const used = usedRaw != null && usedRaw !== "" ? Number(usedRaw) : undefined;
-              onSet(Math.floor(Date.now() / 1000) + Math.floor(n * 60), used);
-            }}
-          >
-            Set manual
-          </button>
-          {win?.is_manual && (
-            <button type="button" className="underline-offset-2 hover:underline" onClick={onClear}>
-              Clear
-            </button>
-          )}
-        </span>
+      <div className="text-xs text-[var(--color-muted-foreground)]">
+        {pct != null ? `${pct.toFixed(1)}% used` : "no data"}
       </div>
     </div>
   );

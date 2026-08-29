@@ -19,6 +19,27 @@ use crate::pricing;
 
 const MAX_BASELINES: usize = 32;
 
+fn is_manageable_codex_thread(thread_source: Option<&str>) -> bool {
+    match thread_source {
+        None => true, // legacy / missing: allow (index filter cleans later)
+        Some("user") => true,
+        Some(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod thread_source_tests {
+    use super::is_manageable_codex_thread;
+
+    #[test]
+    fn only_user_or_missing_are_manageable() {
+        assert!(is_manageable_codex_thread(Some("user")));
+        assert!(is_manageable_codex_thread(None));
+        assert!(!is_manageable_codex_thread(Some("subagent")));
+        assert!(!is_manageable_codex_thread(Some("guardian_review")));
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct TokenUsage {
     input_tokens: i64,
@@ -258,6 +279,7 @@ impl CodexProvider {
         let mut session_id = String::new();
         let mut model = String::from("unknown");
         let mut cwd: Option<String> = None;
+        let mut manageable_session = true;
         let mut written = 0usize;
         let mut line_no: u64 = 0;
         let mut bytes_read = start;
@@ -296,12 +318,19 @@ impl CodexProvider {
                     if let Some(c) = payload.get("cwd").and_then(|v| v.as_str()) {
                         cwd = Some(c.to_string());
                     }
-                    if !session_id.is_empty() {
+                    let thread_source = payload.get("thread_source").and_then(|v| v.as_str());
+                    manageable_session = is_manageable_codex_thread(thread_source);
+                    if manageable_session && !session_id.is_empty() {
+                        let model_ref = if model == "unknown" {
+                            None
+                        } else {
+                            Some(model.as_str())
+                        };
                         let _ = db.upsert_session(
                             &session_id,
                             "codex",
                             cwd.as_deref(),
-                            Some(&model),
+                            model_ref,
                             ts,
                         );
                     }
@@ -330,8 +359,8 @@ impl CodexProvider {
                         .get("total_token_usage")
                         .and_then(TokenUsage::from_value);
 
-                    // Rate-limit snapshot (optional)
-                    upsert_codex_limits(db, info, ts);
+                    // Rate-limit snapshot lives on payload (Codex) and/or info.
+                    upsert_codex_limits(db, info, &payload, ts);
 
                     let Some(delta) = state.consume(last, total) else {
                         continue;
@@ -384,7 +413,14 @@ impl CodexProvider {
                     if inserted {
                         written += 1;
                     }
-                    let _ = db.upsert_session(&sid, "codex", cwd.as_deref(), Some(&model), ts);
+                    if manageable_session {
+                        let model_ref = if model == "unknown" {
+                            None
+                        } else {
+                            Some(model.as_str())
+                        };
+                        let _ = db.upsert_session(&sid, "codex", cwd.as_deref(), model_ref, ts);
+                    }
                 }
                 _ => {}
             }
@@ -410,9 +446,10 @@ fn parse_ts(v: Option<&Value>) -> i64 {
     }
 }
 
-fn upsert_codex_limits(db: &Db, info: &Value, ts: i64) {
-    // Look for rate limit snapshots keyed by limit_window_seconds
+fn upsert_codex_limits(db: &Db, info: &Value, payload: &Value, ts: i64) {
+    // Codex puts rate_limits on the event payload; older shapes nest under info.
     let candidates = [
+        payload.get("rate_limits"),
         info.get("rate_limits"),
         info.get("rate_limit"),
         info.get("limits"),
@@ -424,16 +461,31 @@ fn upsert_codex_limits(db: &Db, info: &Value, ts: i64) {
                 apply_limit_item(db, item, ts);
             }
         } else if cand.is_object() {
-            // Maybe map of windows
+            // Maybe map of windows (Codex: primary/secondary with window_minutes)
             if let Some(obj) = cand.as_object() {
-                for (k, v) in obj {
-                    if k.contains("18000") || k == "five_hour" {
-                        apply_window(db, "five_hour", v, ts);
-                    } else if k.contains("604800") || k == "seven_day" {
-                        apply_window(db, "seven_day", v, ts);
-                    } else {
-                        apply_limit_item(db, v, ts);
+                // Direct rate_limits object (has primary/secondary keys)
+                let looks_like_windows = obj.contains_key("primary")
+                    || obj.contains_key("secondary")
+                    || obj.contains_key("five_hour")
+                    || obj.contains_key("seven_day");
+                if looks_like_windows || obj.values().any(|v| v.get("window_minutes").is_some()) {
+                    for (k, v) in obj {
+                        let key = k.as_str();
+                        if key.contains("18000") || key == "five_hour" || key == "primary" {
+                            apply_window(db, "five_hour", v, ts);
+                        } else if key.contains("604800")
+                            || key == "seven_day"
+                            || key == "secondary"
+                        {
+                            apply_window(db, "seven_day", v, ts);
+                        } else {
+                            apply_limit_item(db, v, ts);
+                        }
                     }
+                    continue;
+                }
+                for (_k, v) in obj {
+                    apply_limit_item(db, v, ts);
                 }
             }
         }
@@ -445,9 +497,10 @@ fn apply_limit_item(db: &Db, item: &Value, ts: i64) {
         .get("limit_window_seconds")
         .and_then(|v| v.as_i64())
         .or_else(|| item.get("window_seconds").and_then(|v| v.as_i64()));
-    let kind = match secs {
-        Some(18000) => "five_hour",
-        Some(604800) => "seven_day",
+    let minutes = item.get("window_minutes").and_then(|v| v.as_i64());
+    let kind = match (secs, minutes) {
+        (Some(18_000), _) | (_, Some(300)) => "five_hour",
+        (Some(604_800), _) | (_, Some(10_080)) => "seven_day",
         _ => return,
     };
     apply_window(db, kind, item, ts);
@@ -465,8 +518,7 @@ fn apply_window(db: &Db, kind: &str, v: &Value, ts: i64) {
     if used.is_none() && resets.is_none() {
         return;
     }
-    let _ = db.upsert_limit("codex", kind, used, resets, false);
-    let _ = ts;
+    let _ = db.upsert_limit("codex", kind, used, resets, false, Some(ts));
 }
 
 #[cfg(test)]
@@ -508,5 +560,45 @@ mod tests {
         // Duplicate snapshot of stream A total -> None
         let d4 = state.consume(Some(u(0, 0, 0, 0)), Some(u(14, 0, 7, 21)));
         assert!(d4.is_none());
+    }
+
+    #[test]
+    fn upsert_codex_limits_primary_secondary_window_minutes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("t.db")).unwrap();
+        let info = serde_json::json!({
+            "total_token_usage": {},
+            "last_token_usage": {}
+        });
+        let payload = serde_json::json!({
+            "type": "token_count",
+            "info": info,
+            "rate_limits": {
+                "limit_id": "codex",
+                "primary": {
+                    "used_percent": 58.0,
+                    "window_minutes": 300,
+                    "resets_at": 1788030217_i64
+                },
+                "secondary": {
+                    "used_percent": 80.0,
+                    "window_minutes": 10080,
+                    "resets_at": 1788452757_i64
+                }
+            }
+        });
+        upsert_codex_limits(&db, &info, &payload, 1);
+        let limits = db.all_limits().unwrap();
+        let five = limits
+            .iter()
+            .find(|l| l.source == "codex" && l.window_kind == "five_hour")
+            .expect("five_hour");
+        assert_eq!(five.resets_at, Some(1788030217));
+        assert_eq!(five.used_percent, Some(58.0));
+        let seven = limits
+            .iter()
+            .find(|l| l.source == "codex" && l.window_kind == "seven_day")
+            .expect("seven_day");
+        assert_eq!(seven.resets_at, Some(1788452757));
     }
 }

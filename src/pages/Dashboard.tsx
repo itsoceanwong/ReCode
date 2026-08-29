@@ -83,19 +83,7 @@ export default function Dashboard() {
           </p>
         )}
         {[...bySource.entries()].map(([source, windows]) => (
-          <LimitCard
-            key={source}
-            source={source}
-            windows={windows}
-            onSetManual={async (kind, resetsAt, used) => {
-              await api.setManualLimit(source, kind, resetsAt, used ?? null);
-              refresh();
-            }}
-            onClearManual={async (kind) => {
-              await api.clearManualLimit(source, kind);
-              refresh();
-            }}
-          />
+          <LimitCard key={source} source={source} windows={windows} />
         ))}
       </div>
     </div>
