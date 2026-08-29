@@ -1,0 +1,51 @@
+[
+  {
+    "model": "claude-sonnet-4",
+    "input_pm": 3.0,
+    "output_pm": 15.0,
+    "cache_read_pm": 0.3,
+    "cache_write_pm": 3.75
+  },
+  {
+    "model": "claude-opus-4",
+    "input_pm": 15.0,
+    "output_pm": 75.0,
+    "cache_read_pm": 1.5,
+    "cache_write_pm": 18.75
+  },
+  {
+    "model": "claude-haiku-4",
+    "input_pm": 1.0,
+    "output_pm": 5.0,
+    "cache_read_pm": 0.1,
+    "cache_write_pm": 1.25
+  },
+  {
+    "model": "gpt-5",
+    "input_pm": 1.25,
+    "output_pm": 10.0,
+    "cache_read_pm": 0.125,
+    "cache_write_pm": 1.25
+  },
+  {
+    "model": "gpt-4.1",
+    "input_pm": 2.0,
+    "output_pm": 8.0,
+    "cache_read_pm": 0.5,
+    "cache_write_pm": 2.0
+  },
+  {
+    "model": "o3",
+    "input_pm": 2.0,
+    "output_pm": 8.0,
+    "cache_read_pm": 0.5,
+    "cache_write_pm": 2.0
+  },
+  {
+    "model": "o4-mini",
+    "input_pm": 1.1,
+    "output_pm": 4.4,
+    "cache_read_pm": 0.275,
+    "cache_write_pm": 1.1
+  }
+]

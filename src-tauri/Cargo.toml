@@ -1,0 +1,40 @@
+[package]
+name = "recode"
+version = "0.1.0"
+description = "Cross-platform read-only desktop monitor for vibe-coding agents"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "recode_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
+anyhow = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5"
+notify = "7"
+walkdir = "2"
+axum = "0.8"
+bytes = "1"
+arboard = "3"
+enigo = "0.3"
+prost = "0.14.4"
+opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic-messages", "metrics"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+] }
