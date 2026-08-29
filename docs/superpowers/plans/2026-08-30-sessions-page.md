@@ -237,7 +237,7 @@ pub fn project_from_cwd(cwd: Option<&str>) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Claude encodes cwd as e.g. `C--Users-wongo-Coding-StudySystem`.
+/// Claude encodes cwd as e.g. `C--Users-<user>-Coding-StudySystem`.
 pub fn project_from_claude_projects_dir(dir_name: &str) -> Option<String> {
     dir_name
         .rsplit('-')
