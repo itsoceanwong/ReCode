@@ -39,10 +39,14 @@ Extend `SessionView` (Rust + TypeScript):
 ### Enrich pipeline (on `get_sessions`)
 
 1. Load sessions from SQLite as today.
-2. Drop / never expose Codex sessions identified as subagent or guardian (`thread_source` / session_meta such as `subagent`, `guardian_review`, or non-`user` main threads). Prefer skipping at scan/upsert when meta is available; also filter at enrich so the Sessions page never lists them.
+2. **Hide Codex non-main threads (concrete rule, verified against local Codex data):**
+   - Observed `thread_source` values: `user`, `subagent`, `guardian_review`.
+   - **Allowlist:** only `thread_source == "user"` is manageable.
+   - **At scan (`CodexProvider`):** on `session_meta`, if `thread_source` is present and not `"user"`, do **not** `upsert_session` (usage events may still record the thread id for billing if needed, but no Sessions row).
+   - **At enrich:** load `session_index.jsonl`. Verified: main `user` threads appear in the index; `subagent` / `guardian_review` do not. For `source == "codex"`, if the index file loaded successfully, **drop any session whose `id` is not in the index** (cleans legacy DB rows already upserted). If the index file is missing/unreadable, do not apply this drop (fail open on titles only); still omit model `unknown` from labels.
 3. Build Codex title map once from `session_index.jsonl` (`id` → `thread_name`).
 4. For each remaining session, set:
-   - `project` = last path segment of `cwd` (Windows and POSIX)
+   - `project` = last path segment of `cwd` (Windows and POSIX). If Claude `cwd` is null, derive project from the matching `~/.claude/projects/<encoded-cwd>/` folder name (decode trailing segment, e.g. `...-StudySystem` → `StudySystem`) when the JSONL is found by id.
    - session title = Codex `thread_name` / Claude `customTitle`→`aiTitle` / short id
    - `display_name` = `"{project} - {title}"` if project present, else `{title}`
 5. Do not treat model `"unknown"` as a display name; omit model from subtitle when missing or `"unknown"`.
@@ -51,9 +55,9 @@ Extend `SessionView` (Rust + TypeScript):
 
 | Tool | Path | Fields |
 | --- | --- | --- |
-| Codex | `~/.codex/session_index.jsonl` | `id`, `thread_name`, `updated_at` |
-| Codex | session rollout `session_meta` | `cwd`, `thread_source` (for hide rules) |
-| Claude | `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` | events `custom-title` / `ai-title` |
+| Codex | `~/.codex/session_index.jsonl` | `id`, `thread_name`, `updated_at` (also used as allowlist for Sessions) |
+| Codex | session rollout `session_meta` | `cwd`, `thread_source` (scan-time skip when not `user`) |
+| Claude | `~/.claude/projects/**/<session-id>.jsonl` | locate by filename `id.jsonl` under projects; events `custom-title` (`customTitle`) / `ai-title` (`aiTitle`); prefer latest occurrence |
 
 All enrichment is best-effort: missing files or parse errors fall back per session without failing the whole list.
 
@@ -87,8 +91,9 @@ Remove the 「Sessions / auto-continue」 card only. Leave continue prompt, tele
 ### Rust unit tests (fixtures / temp files)
 
 - Codex: map `thread_name` from sample `session_index.jsonl`.
-- Codex: subagent / guardian sessions excluded from Sessions list.
-- Claude: `customTitle` wins over `aiTitle`; neither → short id.
+- Codex: scan skips `upsert_session` when `thread_source` is `subagent` or `guardian_review`.
+- Codex: enrich drops ids absent from a loaded `session_index` (legacy cleanup).
+- Claude: locate `projects/**/<id>.jsonl`; `customTitle` wins over `aiTitle`; neither → short id.
 - `display_name` formatting with and without project.
 - Model `unknown` / empty not used as title.
 
@@ -106,3 +111,18 @@ Remove the 「Sessions / auto-continue」 card only. Leave continue prompt, tele
 - Editing / renaming sessions inside ReCode
 - Showing Cursor composer sessions on this page
 - Building a durable secondary title index database
+
+## Verification (2026-08-30)
+
+Checked against this repo and local Codex/Claude data:
+
+| Claim | Result |
+| --- | --- |
+| UI currently shows `source · model` → `codex · unknown` | Confirmed in `Settings.tsx` |
+| `get_sessions` / `SessionView` / autocontinue API exist | Confirmed (`db.rs`, `api.ts`) |
+| Codex titles in `session_index.jsonl` (`id`, `thread_name`, `updated_at`) | Confirmed (~41 entries) |
+| Claude titles via `custom-title` / `ai-title` in project JSONL | Confirmed |
+| Claude JSONL locatable as `projects/**/<session-id>.jsonl` | Confirmed |
+| Hide subagents via allowlist `thread_source=user` | Confirmed sample: user ∈ index; subagent/guardian ∉ index |
+| Enrich is local-only (Tauri + `paths::codex_dir` / `claude_dir`) | Feasible; no remote required |
+| Spec gaps found | Closed in Enrich pipeline: index allowlist + Claude path-by-id + project fallback |
