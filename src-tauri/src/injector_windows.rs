@@ -1,6 +1,7 @@
 use anyhow::Result;
 use arboard::Clipboard;
 
+use crate::injector::is_codex_or_claude_target;
 use crate::models::{InjectOutcome, InjectionTarget, TargetKind};
 
 pub fn list_targets() -> Result<Vec<InjectionTarget>> {
@@ -18,15 +19,9 @@ pub fn list_targets() -> Result<Vec<InjectionTarget>> {
             let len = GetWindowTextW(hwnd, &mut buf);
             if len > 0 {
                 let title = String::from_utf16_lossy(&buf[..len as usize]);
-                if !title.trim().is_empty() {
-                    let kind = if title.to_ascii_lowercase().contains("terminal")
-                        || title.to_ascii_lowercase().contains("powershell")
-                        || title.to_ascii_lowercase().contains("cmd")
-                    {
-                        TargetKind::Terminal
-                    } else {
-                        TargetKind::DesktopApp
-                    };
+                let process = process_image_for_hwnd(hwnd);
+                if is_codex_or_claude_target(title.trim(), process.as_deref()) {
+                    let kind = classify_kind(&title, process.as_deref());
                     list.push(InjectionTarget {
                         kind,
                         reference: title,
@@ -44,6 +39,59 @@ pub fn list_targets() -> Result<Vec<InjectionTarget>> {
     Ok(targets)
 }
 
+fn classify_kind(title: &str, process: Option<&str>) -> TargetKind {
+    let blob = format!(
+        "{} {}",
+        title.to_ascii_lowercase(),
+        process.unwrap_or("").to_ascii_lowercase()
+    );
+    if blob.contains("terminal")
+        || blob.contains("powershell")
+        || blob.contains("pwsh")
+        || blob.contains("cmd")
+        || blob.contains("windows terminal")
+    {
+        TargetKind::Terminal
+    } else {
+        TargetKind::DesktopApp
+    }
+}
+
+fn process_image_for_hwnd(hwnd: windows::Win32::Foundation::HWND) -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    }
+    if pid == 0 {
+        return None;
+    }
+    let handle =
+        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    let mut buf = [0u16; 1024];
+    let mut size = buf.len() as u32;
+    let ok = unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+    };
+    let _ = unsafe { CloseHandle(handle) };
+    if ok.is_err() || size == 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buf[..size as usize]))
+}
+
 fn find_hwnd_by_title(title: &str) -> Option<windows::Win32::Foundation::HWND> {
     use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindow};
@@ -56,8 +104,25 @@ fn find_hwnd_by_title(title: &str) -> Option<windows::Win32::Foundation::HWND> {
     Some(hwnd)
 }
 
+fn hwnd_is_allowed(hwnd: windows::Win32::Foundation::HWND, title_hint: &str) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+
+    let mut buf = [0u16; 512];
+    let len = unsafe { GetWindowTextW(hwnd, &mut buf) };
+    let title = if len > 0 {
+        String::from_utf16_lossy(&buf[..len as usize])
+    } else {
+        title_hint.to_string()
+    };
+    let process = process_image_for_hwnd(hwnd);
+    is_codex_or_claude_target(title.trim(), process.as_deref())
+}
+
 pub fn send(target: &InjectionTarget, text: &str) -> Result<InjectOutcome> {
     if let Some(hwnd) = find_hwnd_by_title(&target.reference) {
+        if !hwnd_is_allowed(hwnd, &target.reference) {
+            return Ok(InjectOutcome::WindowNotFound);
+        }
         return send_to_hwnd(hwnd, text);
     }
 
@@ -71,6 +136,9 @@ pub fn send(target: &InjectionTarget, text: &str) -> Result<InjectOutcome> {
     let Some(hwnd) = find_hwnd_by_title(&matched.reference) else {
         return Ok(InjectOutcome::WindowNotFound);
     };
+    if !hwnd_is_allowed(hwnd, &matched.reference) {
+        return Ok(InjectOutcome::WindowNotFound);
+    }
     send_to_hwnd(hwnd, text)
 }
 

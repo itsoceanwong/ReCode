@@ -2,6 +2,7 @@ use anyhow::Result;
 use arboard::Clipboard;
 use std::process::Command;
 
+use crate::injector::is_codex_or_claude_target;
 use crate::models::{InjectOutcome, InjectionTarget, TargetKind};
 
 pub fn list_targets() -> Result<Vec<InjectionTarget>> {
@@ -19,6 +20,9 @@ pub fn list_targets() -> Result<Vec<InjectionTarget>> {
     for name in text.split(',') {
         let name = name.trim().trim_matches('"');
         if name.is_empty() {
+            continue;
+        }
+        if !is_codex_or_claude_target(name, Some(name)) {
             continue;
         }
         let kind = if name.contains("Terminal")
@@ -39,6 +43,10 @@ pub fn list_targets() -> Result<Vec<InjectionTarget>> {
 }
 
 pub fn send(target: &InjectionTarget, text: &str) -> Result<InjectOutcome> {
+    if !is_codex_or_claude_target(&target.reference, Some(&target.reference)) {
+        return Ok(InjectOutcome::WindowNotFound);
+    }
+
     {
         let mut clip = Clipboard::new()?;
         clip.set_text(text.to_string())?;
