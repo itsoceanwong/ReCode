@@ -23,6 +23,12 @@ const tooltipStyle = {
   boxShadow: "0 4px 12px color-mix(in oklch, var(--color-foreground) 12%, transparent)",
 } as const;
 
+const numberFmt = new Intl.NumberFormat();
+
+function fmtNumber(n: number) {
+  return numberFmt.format(n);
+}
+
 export function UsageChart({ rows }: { rows: UsageAggregate[] }) {
   const data = rows.map((r) => ({
     name: r.model || r.source,
@@ -49,12 +55,19 @@ export function UsageChart({ rows }: { rows: UsageAggregate[] }) {
             tick={tickStyle}
             stroke="var(--color-border)"
           />
-          <YAxis tick={tickStyle} stroke="var(--color-border)" />
+          <YAxis
+            tick={tickStyle}
+            stroke="var(--color-border)"
+            tickFormatter={(v: number) => fmtNumber(v)}
+          />
           <Tooltip
             contentStyle={tooltipStyle}
             labelStyle={{ color: "var(--color-foreground)" }}
             itemStyle={{ color: "var(--color-foreground)" }}
             cursor={{ fill: "var(--color-muted)", opacity: 0.35 }}
+            formatter={(value) =>
+              fmtNumber(typeof value === "number" ? value : Number(value))
+            }
           />
           <Legend wrapperStyle={{ color: "var(--color-foreground)" }} />
           <Bar dataKey="input" stackId="t" fill="#2f5d8a" />
