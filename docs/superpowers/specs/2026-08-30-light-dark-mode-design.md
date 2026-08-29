@@ -58,30 +58,55 @@ Add a light/dark UI theme with a header toggle button using sun/moon emoji. Defa
 
 - `.dark { ... }` overrides for the same `--color-*` tokens (dark surfaces, readable foreground, muted borders)
 
-### Fix hard-coded light colors
+### Fix hard-coded light colors (verified against `src/`)
+
+Must fix for acceptance (white surfaces on dark chrome):
 
 - `body` gradient in `index.css` — drive from tokens / `.dark` rules
-- App shell radial gradient using `#eef3f8` — replace with theme-aware values
-- Settings `select` using `bg-white` — use `bg-[var(--color-card)]` (or equivalent token)
+- App shell radial gradient using `#eef3f8` in `App.tsx` — theme-aware values
+- `src/components/ui/input.tsx` — `bg-white` → card/background token
+- `src/components/ui/tabs.tsx` — `data-[state=active]:bg-white` → card token
+- `src/pages/Settings.tsx` — native `select` `bg-white` → card token
+
+OK to leave (not light-theme holes):
+
+- Switch thumb `bg-white` in `switch.tsx` — intentional contrast knob
+- Destructive button `text-white` — on colored fill
+- Chart series fills in `UsageChart.tsx` — intentional data colors; optional later: soften grid `#ddd` for dark
+
+### Tailwind v4 note
+
+Project uses Tailwind v4 (`@tailwindcss/vite`, no `tailwind.config`). This design relies on **CSS variable overrides under `.dark`**, not `dark:` utility classes, so no `@custom-variant dark` is required for the core path. Components that already use `var(--color-*)` pick up dark tokens automatically.
 
 ## Non-goals
 
 - Theme control on the Settings page
 - Explicit “follow system again” control in v1
 - Animation libraries or non-emoji icons
+- Chart recoloring (optional polish only)
 
 ## Acceptance criteria
 
 1. First launch with empty localStorage follows the OS light/dark setting.
 2. Clicking the header button switches immediately; relaunch restores the saved preference.
-3. Dashboard, Tokens, and Settings are readable in dark mode with no obvious light “holes” (white cards/inputs left on dark chrome).
+3. Dashboard, Tokens, and Settings are readable in dark mode with no obvious light “holes” (white cards/inputs/tabs left on dark chrome).
 4. Button emoji matches the resolved theme.
 
 ## Implementation touchpoints (expected)
 
 - `src/index.css` — dark tokens + body background
-- `src/main.tsx` — early theme apply
+- `src/main.tsx` (and/or tiny bootstrap before paint) — early theme apply
 - `src/store.ts` (and/or `src/lib/theme.ts`) — preference + resolve + toggle
-- `src/App.tsx` — header toggle button
+- `src/App.tsx` — header toggle button + shell gradient
+- `src/components/ui/input.tsx`, `tabs.tsx` — replace `bg-white`
 - `src/pages/Settings.tsx` — replace `bg-white` on select
-- Possibly other components if hard-coded light backgrounds appear during implementation
+
+## Verification (2026-08-30)
+
+| Check | Result |
+| --- | --- |
+| Architecture matches codebase (CSS vars + Zustand + header) | Pass |
+| Decisions internally consistent | Pass |
+| No TBD / ambiguous requirements | Pass |
+| Hard-coded light surfaces listed completely | Pass (after this update; input/tabs were missing earlier) |
+| Scope still single-feature sized | Pass |
