@@ -1,14 +1,23 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { api } from "@/lib/api";
 import type {
   CursorStatus,
   PricingRow,
   TelemetryStatus,
 } from "@/lib/types";
+import { Zap, Radio, Database, DollarSign } from "lucide-react";
 
 export function SettingsPage() {
   const [prompt, setPrompt] = useState("");
@@ -52,249 +61,327 @@ export function SettingsPage() {
       await api.setSetting("default_prompt", prompt);
       await api.setSetting("continue_offset_seconds", offset);
       await api.setSetting("notify_only", notifyOnly ? "true" : "false");
-      setStatus("Saved.");
+      setStatus("Settings saved successfully.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Continue prompt</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 max-w-xl">
-          <label className="block space-y-1.5 text-sm">
-            <span className="font-medium">Default prompt</span>
-            <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-          </label>
-          <label className="block space-y-1.5 text-sm">
-            <span className="font-medium">Offset (seconds after reset)</span>
-            <Input
-              type="number"
-              value={offset}
-              onChange={(e) => setOffset(e.target.value)}
-            />
-          </label>
-          <label className="flex items-center gap-3 text-sm">
-            <Switch checked={notifyOnly} onCheckedChange={setNotifyOnly} />
-            Notify-only mode (do not inject)
-          </label>
-          <Button type="button" onClick={() => void saveBasics()}>
-            Save
-          </Button>
-          {status && (
-            <p className="text-sm text-[var(--color-primary)]">{status}</p>
-          )}
-          {error && (
-            <p className="text-sm text-[var(--color-destructive)]">{error}</p>
-          )}
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-[var(--color-foreground)]">
+          Settings
+        </h1>
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          Configure prompt auto-continue, telemetry hooks, local scanner, and pricing rates.
+        </p>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Claude telemetry</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm max-w-xl">
-          <p>
-            Status:{" "}
-            {tel?.present ? "configured in settings.json" : "not present"} ·
-            port {tel?.port || "—"}
-          </p>
-          {tel?.ccswitch_detected && (
-            <p className="rounded-md bg-[var(--color-muted)] p-3 text-xs">
-              cc-switch detected. Add the same OTEL env keys to its Common
-              Config Snippet so provider switches do not wipe telemetry. ReCode
-              will self-heal ~/.claude/settings.json when possible.
-            </p>
-          )}
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              onClick={() =>
-                void api
-                  .enableTelemetry()
-                  .then((r) => {
-                    setStatus(`Telemetry enabled on port ${r.port}`);
-                    return refresh();
-                  })
-                  .catch((e: unknown) =>
-                    setError(e instanceof Error ? e.message : String(e)),
-                  )
-              }
-            >
-              Enable
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                void api
-                  .disableTelemetry()
-                  .then(() => {
-                    setStatus("Telemetry disabled");
-                    return refresh();
-                  })
-                  .catch((e: unknown) =>
-                    setError(e instanceof Error ? e.message : String(e)),
-                  )
-              }
-            >
-              Disable
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {status && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-400">
+          {status}
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-400">
+          {error}
+        </div>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Cursor usage (local SQLite)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm max-w-xl">
-          <p className="text-xs text-[var(--color-muted-foreground)]">
-            Best-effort read of Cursor&apos;s state.vscdb (bubble tokenCount, with
-            composer context-meter fallback). Marked approximate. Does not read
-            auth tokens.
-          </p>
-          <label className="flex items-center gap-3">
-            <Switch
-              checked={cursorEnabled}
-              onCheckedChange={(enabled) => {
-                setCursorEnabled(enabled);
-                void api
-                  .setSetting("cursor_enabled", enabled ? "true" : "false")
-                  .then(() =>
-                    enabled ? api.scanCursorNow().then(() => refresh()) : refresh(),
-                  );
-              }}
-            />
-            Enable Cursor local scan
-          </label>
-          {cursorStat && (
-            <div className="rounded-md bg-[var(--color-muted)] p-3 text-xs space-y-1">
-              <p>DB: {cursorStat.db_found ? "found" : "not found"}</p>
-              {cursorStat.db_path && (
-                <p className="break-all opacity-80">{cursorStat.db_path}</p>
-              )}
-              <p>
-                Schema: {cursorStat.schema_ok ? "ok" : "unknown"} · last insert:{" "}
-                {cursorStat.last_inserted}
-              </p>
-              {cursorStat.detail && <p>{cursorStat.detail}</p>}
+      {/* Grid of Settings Modules */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Auto-Continue Config */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-orange-400" />
+              <CardTitle>Auto-Continue Injections</CardTitle>
             </div>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                void api
-                  .scanCursorNow()
-                  .then((n) => {
-                    setStatus(`Cursor scan inserted ${n} row(s)`);
-                    return refresh();
-                  })
-                  .catch((e: unknown) =>
-                    setError(e instanceof Error ? e.message : String(e)),
-                  )
-              }
-            >
-              Scan now
-            </Button>
-          </div>
-          <div className="grid grid-cols-3 gap-2 items-end border-t border-[var(--color-border)] pt-3">
-            <label className="space-y-1 text-xs col-span-1">
-              <span>Manual model</span>
+            <CardDescription>
+              Prompt delivered automatically to the active terminal upon window reset
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <label className="block space-y-1.5 text-xs">
+              <span className="font-semibold">Default Prompt Message</span>
               <Input
-                value={manualModel}
-                onChange={(e) => setManualModel(e.target.value)}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Continue working on the task..."
               />
             </label>
-            <label className="space-y-1 text-xs">
-              <span>Input</span>
+            <label className="block space-y-1.5 text-xs">
+              <span className="font-semibold">Reset Buffer Offset (Seconds)</span>
               <Input
                 type="number"
-                value={manualIn}
-                onChange={(e) => setManualIn(e.target.value)}
+                value={offset}
+                onChange={(e) => setOffset(e.target.value)}
               />
             </label>
-            <label className="space-y-1 text-xs">
-              <span>Output</span>
-              <Input
-                type="number"
-                value={manualOut}
-                onChange={(e) => setManualOut(e.target.value)}
-              />
+            <label className="flex items-center gap-3 text-xs">
+              <Switch checked={notifyOnly} onCheckedChange={setNotifyOnly} />
+              <span>Notify-only mode (Send notification without terminal injection)</span>
             </label>
-            <Button
-              size="sm"
-              className="col-span-3"
-              variant="outline"
-              onClick={() =>
-                void api
-                  .setManualUsage(
-                    manualModel || "cursor-auto",
-                    Number(manualIn) || 0,
-                    Number(manualOut) || 0,
-                  )
-                  .then(() => {
-                    setStatus("Manual Cursor usage saved");
-                    return refresh();
-                  })
-                  .catch((e: unknown) =>
-                    setError(e instanceof Error ? e.message : String(e)),
-                  )
-              }
-            >
-              Add manual usage row
+            <Button type="button" onClick={() => void saveBasics()} className="w-full">
+              Save Preferences
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Pricing (USD / 1M tokens)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {pricing.map((p) => (
-            <div
-              key={p.model}
-              className="grid grid-cols-5 gap-2 text-xs items-center"
-            >
-              <span className="font-medium truncate">{p.model}</span>
-              {(
-                [
-                  ["input_pm", p.input_pm],
-                  ["output_pm", p.output_pm],
-                  ["cache_read_pm", p.cache_read_pm],
-                  ["cache_write_pm", p.cache_write_pm],
-                ] as const
-              ).map(([key, val]) => (
-                <Input
-                  key={key}
-                  type="number"
-                  step="0.01"
-                  defaultValue={val}
-                  onBlur={(e) => {
-                    const n = Number(e.target.value);
-                    if (!Number.isFinite(n)) return;
-                    const next = { ...p, [key]: n };
+        {/* Claude Telemetry */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-sky-400" />
+              <CardTitle>Claude Code Telemetry</CardTitle>
+            </div>
+            <CardDescription>
+              OTLP receiver hook for real-time token tracking
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-xs">
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card-elevated)] p-3 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[var(--color-muted-foreground)]">Status</span>
+                <span className="font-mono font-semibold text-emerald-400">
+                  {tel?.present ? "Configured & Active" : "Not Configured"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[var(--color-muted-foreground)]">OTLP Port</span>
+                <span className="font-mono">{tel?.port || "—"}</span>
+              </div>
+            </div>
+
+            {tel?.ccswitch_detected && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-[11px] text-amber-300">
+                cc-switch detected. ReCode will preserve and self-heal settings.json hooks.
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={() =>
+                  void api
+                    .enableTelemetry()
+                    .then((r) => {
+                      setStatus(`Telemetry enabled on port ${r.port}`);
+                      return refresh();
+                    })
+                    .catch((e: unknown) =>
+                      setError(e instanceof Error ? e.message : String(e)),
+                    )
+                }
+              >
+                Enable Hook
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() =>
+                  void api
+                    .disableTelemetry()
+                    .then(() => {
+                      setStatus("Telemetry disabled");
+                      return refresh();
+                    })
+                    .catch((e: unknown) =>
+                      setError(e instanceof Error ? e.message : String(e)),
+                    )
+                }
+              >
+                Disable Hook
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Cursor Usage Local SQLite */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-purple-400" />
+              <CardTitle>Cursor Usage Scanner (Local SQLite)</CardTitle>
+            </div>
+            <CardDescription>
+              Best-effort read of Cursor&apos;s state.vscdb (bubble tokenCount with composer fallback)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-xs">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-3">
+                <Switch
+                  checked={cursorEnabled}
+                  onCheckedChange={(enabled) => {
+                    setCursorEnabled(enabled);
                     void api
-                      .setPricing(p.model, {
-                        input_pm: next.input_pm,
-                        output_pm: next.output_pm,
-                        cache_read_pm: next.cache_read_pm,
-                        cache_write_pm: next.cache_write_pm,
-                      })
-                      .then(refresh);
+                      .setSetting("cursor_enabled", enabled ? "true" : "false")
+                      .then(() =>
+                        enabled ? api.scanCursorNow().then(() => refresh()) : refresh(),
+                      );
                   }}
                 />
-              ))}
+                <span>Enable Cursor local background scan</span>
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  void api
+                    .scanCursorNow()
+                    .then((n) => {
+                      setStatus(`Cursor scan inserted ${n} row(s)`);
+                      return refresh();
+                    })
+                    .catch((e: unknown) =>
+                      setError(e instanceof Error ? e.message : String(e)),
+                    )
+                }
+              >
+                Scan Now
+              </Button>
             </div>
-          ))}
+
+            {cursorStat && (
+              <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card-elevated)] p-3 space-y-1">
+                <div className="flex justify-between">
+                  <span>DB Status: {cursorStat.db_found ? "Found" : "Not Found"}</span>
+                  <span>Schema: {cursorStat.schema_ok ? "OK" : "Unknown"}</span>
+                </div>
+                {cursorStat.db_path && (
+                  <p className="font-mono text-[10px] opacity-70 truncate">{cursorStat.db_path}</p>
+                )}
+                <p className="text-[11px] text-[var(--color-muted-foreground)]">
+                  Last insert: {cursorStat.last_inserted} {cursorStat.detail ? `· ${cursorStat.detail}` : ""}
+                </p>
+              </div>
+            )}
+
+            {/* Manual Usage Entry */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end border-t border-[var(--color-border)] pt-3">
+              <label className="space-y-1">
+                <span>Manual Model</span>
+                <Input
+                  value={manualModel}
+                  onChange={(e) => setManualModel(e.target.value)}
+                  placeholder="cursor-auto"
+                />
+              </label>
+              <label className="space-y-1">
+                <span>Input Tokens</span>
+                <Input
+                  type="number"
+                  value={manualIn}
+                  onChange={(e) => setManualIn(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1">
+                <span>Output Tokens</span>
+                <Input
+                  type="number"
+                  value={manualOut}
+                  onChange={(e) => setManualOut(e.target.value)}
+                />
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  void api
+                    .setManualUsage(
+                      manualModel || "cursor-auto",
+                      Number(manualIn) || 0,
+                      Number(manualOut) || 0,
+                    )
+                    .then(() => {
+                      setStatus("Manual Cursor usage saved");
+                      return refresh();
+                    })
+                    .catch((e: unknown) =>
+                      setError(e instanceof Error ? e.message : String(e)),
+                    )
+                }
+              >
+                Add Manual Entry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Pricing Table */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4 text-emerald-400" />
+            <CardTitle>Model Pricing Matrix (USD per 1M Tokens)</CardTitle>
+          </div>
+          <CardDescription>
+            Configure rates to accurately estimate costs across different LLM providers
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {pricing.length === 0 ? (
+            <div className="p-6 text-center text-xs text-[var(--color-muted-foreground)]">
+              No pricing rows defined.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model Identifier</TableHead>
+                  <TableHead>Input ($/1M)</TableHead>
+                  <TableHead>Output ($/1M)</TableHead>
+                  <TableHead>Cache Read ($/1M)</TableHead>
+                  <TableHead>Cache Write ($/1M)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pricing.map((p) => (
+                  <TableRow key={p.model}>
+                    <TableCell className="font-mono font-medium text-xs text-[var(--color-foreground)]">
+                      {p.model}
+                    </TableCell>
+                    {(
+                      [
+                        ["input_pm", p.input_pm],
+                        ["output_pm", p.output_pm],
+                        ["cache_read_pm", p.cache_read_pm],
+                        ["cache_write_pm", p.cache_write_pm],
+                      ] as const
+                    ).map(([key, val]) => (
+                      <TableCell key={key}>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          aria-label={`${p.model} ${key}`}
+                          defaultValue={val}
+                          className="h-8 font-mono text-xs max-w-[7rem]"
+                          onBlur={(e) => {
+                            const n = Number(e.target.value);
+                            if (!Number.isFinite(n)) return;
+                            const next = { ...p, [key]: n };
+                            void api
+                              .setPricing(p.model, {
+                                input_pm: next.input_pm,
+                                output_pm: next.output_pm,
+                                cache_read_pm: next.cache_read_pm,
+                                cache_write_pm: next.cache_write_pm,
+                              })
+                              .then(refresh);
+                          }}
+                        />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

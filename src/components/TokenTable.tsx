@@ -20,22 +20,25 @@ function money(n: number) {
 export function TokenTable({ rows }: { rows: UsageAggregate[] }) {
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-[var(--color-muted-foreground)]">No usage events yet.</p>
+      <div className="py-8 text-center text-xs text-[var(--color-muted-foreground)]">
+        No usage events recorded yet.
+      </div>
     );
   }
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>App</TableHead>
           <TableHead>Model</TableHead>
-          <TableHead>Input</TableHead>
-          <TableHead>Output</TableHead>
-          <TableHead>Cache R</TableHead>
-          <TableHead>Cache W</TableHead>
-          <TableHead>Total</TableHead>
-          <TableHead>Cost</TableHead>
-          <TableHead>Accuracy</TableHead>
+          <TableHead className="text-right">Input</TableHead>
+          <TableHead className="text-right">Output</TableHead>
+          <TableHead className="text-right">Cache Read</TableHead>
+          <TableHead className="text-right">Cache Write</TableHead>
+          <TableHead className="text-right">Total Tokens</TableHead>
+          <TableHead className="text-right">Est. Cost</TableHead>
+          <TableHead className="text-center">Accuracy</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -44,15 +47,23 @@ export function TokenTable({ rows }: { rows: UsageAggregate[] }) {
             r.input + r.output + r.cache_read + r.cache_write + r.reasoning;
           return (
             <TableRow key={`${r.source}-${r.model}-${r.origin}`}>
-              <TableCell className="capitalize">{r.source}</TableCell>
-              <TableCell>{r.model || "—"}</TableCell>
-              <TableCell>{fmt(r.input)}</TableCell>
-              <TableCell>{fmt(r.output)}</TableCell>
-              <TableCell>{fmt(r.cache_read)}</TableCell>
-              <TableCell>{fmt(r.cache_write)}</TableCell>
-              <TableCell>{fmt(total)}</TableCell>
-              <TableCell>{money(r.cost_usd)}</TableCell>
-              <TableCell>
+              <TableCell className="font-semibold capitalize text-[var(--color-foreground)]">
+                {r.source}
+              </TableCell>
+              <TableCell className="font-mono text-[11px] text-[var(--color-muted-foreground)] max-w-[10rem] truncate">
+                {r.model || "—"}
+              </TableCell>
+              <TableCell className="font-mono text-right">{fmt(r.input)}</TableCell>
+              <TableCell className="font-mono text-right">{fmt(r.output)}</TableCell>
+              <TableCell className="font-mono text-right">{fmt(r.cache_read)}</TableCell>
+              <TableCell className="font-mono text-right">{fmt(r.cache_write)}</TableCell>
+              <TableCell className="font-mono text-right font-bold text-[var(--color-foreground)]">
+                {fmt(total)}
+              </TableCell>
+              <TableCell className="font-mono text-right font-semibold text-emerald-400">
+                {money(r.cost_usd)}
+              </TableCell>
+              <TableCell className="text-center">
                 <AccuracyBadge origin={r.origin} />
               </TableCell>
             </TableRow>
