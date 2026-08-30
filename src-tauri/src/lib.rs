@@ -66,7 +66,7 @@ pub fn run() {
             let db = Db::open(&db_path).map_err(|e| e.to_string())?;
 
             let seed = include_str!("../resources/pricing-seed.json");
-            pricing::seed_pricing_if_empty(&db, seed).map_err(|e| e.to_string())?;
+            pricing::sync_pricing_seed(&db, seed).map_err(|e| e.to_string())?;
 
             let recode_home = paths::recode_dir();
             let preferred: u16 = db

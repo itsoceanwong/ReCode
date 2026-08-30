@@ -557,6 +557,12 @@ CREATE TABLE IF NOT EXISTS autocontinue_log (
         Ok(())
     }
 
+    pub fn delete_pricing(&self, model: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("db lock");
+        conn.execute("DELETE FROM pricing WHERE model = ?1", params![model])?;
+        Ok(())
+    }
+
     pub fn find_pricing(&self, model: &str) -> Result<Option<PricingRow>> {
         let all = self.get_pricing()?;
         if let Some(exact) = all.iter().find(|p| p.model == model) {
